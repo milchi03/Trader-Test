@@ -21,8 +21,10 @@ ROUNDS = {
     1: {'name': 'Easy', 'questions': 30, 'correct': 1, 'incorrect': -3, 'pass': -2},
     2: {'name': 'Decimals', 'questions': 30, 'correct': 2, 'incorrect': -1, 'pass': -1},
     3: {'name': 'Difficult Multiplication', 'questions': 15, 'correct': 2, 'incorrect': -2, 'pass': -1},
+    4: {'name': 'Mix', 'questions': 15, 'correct': 2, 'incorrect': -2, 'pass': -1},
 }
-FULL_TEST_TARGET_SECONDS = 10 * 60
+FULL_TEST_TARGET_SECONDS = 13 * 60
+SYMBOLS = {'+': '+', '-': '−', '*': '×', '/': '÷'}
 
 GOOD = '#3fb950'
 BAD = '#f85149'
@@ -90,6 +92,15 @@ def divisor_question(low, high, excluded):
             return numerator, random.choice(divisors)
 
 
+def split(value):
+    # Write value as "a + b" or "a − b" with a and b between 1 and 99
+    if value > 98 or random.random() < 0.5:
+        a = random.randint(1, value - 1)
+        return '%d + %d' % (a, value - a)
+    b = random.randint(1, 99 - value)
+    return '%d − %d' % (value + b, b)
+
+
 def generate_question(rnd):
     operations = ['+', '-', '*', '/']
     if rnd == 1:
@@ -118,14 +129,24 @@ def generate_question(rnd):
             left, right = random.randint(1000, 9999) / 100, random.randint(1000, 9999) / 100
             answer = left + right if op == '+' else left - right
 
-    else:
+    elif rnd == 3:
         op = '*'
         left = random.randint(1, 5000) / random.choice([1, 100])
         right = random.randint(1, 5000) / random.choice([1, 100])
         answer = left * right
 
-    symbol = {'+': '+', '-': '−', '*': '×', '/': '÷'}[op]
-    return '%s  %s  %s' % (fmt(left), symbol, fmt(right)), answer
+    else:
+        # (a ± b) × (c ± d) or (a ± b) ÷ (c ± d), where each bracket is a round 1 sized number
+        if random.random() < 0.5:
+            op, left, right = '*', random.randint(2, 99), random.randint(2, 10)
+            answer = left * right
+        else:
+            op = '/'
+            left, right = divisor_question(2, 99, ())
+            answer = left / right
+        return '(%s)  %s  (%s)' % (split(left), SYMBOLS[op], split(right)), answer
+
+    return '%s  %s  %s' % (fmt(left), SYMBOLS[op], fmt(right)), answer
 
 
 class Session:
@@ -161,7 +182,7 @@ class MenuButton(QPushButton):
         super().__init__()
         self.setObjectName('menuItem')
         self.setCursor(Qt.PointingHandCursor)
-        self.setMinimumHeight(68)
+        self.setMinimumHeight(62)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 10, 20, 10)
         layout.setSpacing(2)
@@ -197,17 +218,18 @@ class MenuPage(QWidget):
     def __init__(self, app):
         super().__init__()
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(60, 50, 60, 50)
-        layout.setSpacing(12)
+        layout.setContentsMargins(60, 40, 60, 40)
+        layout.setSpacing(10)
         layout.addWidget(label('Trader Test', 'title'))
         layout.addWidget(label('Mental maths practice in the style of trading firm assessments.', 'muted'))
-        layout.addSpacing(18)
+        layout.addSpacing(12)
 
         items = [
             ('Round 1 · Easy', '30 questions · + − × ÷ on whole numbers', lambda: app.start_test([1])),
             ('Round 2 · Decimals', '30 questions · + − × ÷ with decimals', lambda: app.start_test([2])),
             ('Round 3 · Difficult Multiplication', '15 questions · large and decimal products', lambda: app.start_test([3])),
-            ('Full Test', 'All three rounds back to back · aim for 60%+ in under 10 minutes', lambda: app.start_test([1, 2, 3])),
+            ('Round 4 · Mix', '15 questions · (a ± b) × (c ± d) and (a ± b) ÷ (c ± d)', lambda: app.start_test([4])),
+            ('Full Test', 'All four rounds back to back · aim for 60%+ in under 13 minutes', lambda: app.start_test(list(ROUNDS))),
             ('Instructions', 'Scoring rules and how to play', app.show_instructions),
         ]
         for title, detail, action in items:
@@ -233,7 +255,7 @@ class InstructionsPage(QWidget):
         intro.setWordWrap(True)
         layout.addWidget(intro)
 
-        table = QTableWidget(3, 5)
+        table = QTableWidget(len(ROUNDS), 5)
         table.setHorizontalHeaderLabels(['Round', 'Questions', 'Correct', 'Incorrect', 'Skipped'])
         for row, (rnd, rules) in enumerate(ROUNDS.items()):
             values = ['%d · %s' % (rnd, rules['name']), rules['questions'],
@@ -244,12 +266,12 @@ class InstructionsPage(QWidget):
                 table.setItem(row, col, item)
         style_table(table)
         table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
-        table.setFixedHeight(table.horizontalHeader().height() + 3 * 44 + 4)
+        table.setFixedHeight(table.horizontalHeader().height() + len(ROUNDS) * 44 + 4)
         layout.addWidget(table)
 
         outro = label(
-            'The full test is all three rounds in a row, for a maximum of %d points. '
-            'Aim to finish in under 10 minutes and score at least 60%%.' % max_points(ROUNDS), 'muted')
+            'The full test is all four rounds in a row, for a maximum of %d points. '
+            'Aim to finish in under 13 minutes and score at least 60%%.' % max_points(ROUNDS), 'muted')
         outro.setWordWrap(True)
         layout.addWidget(outro)
         layout.addStretch()
@@ -368,6 +390,7 @@ class TestPage(QWidget):
         self.progress.setMaximum(rules['questions'])
         self.progress.setValue(s.q_num)
         self.question_label.setText(self.question)
+        self.question_label.setStyleSheet('font-size: %dpx;' % (60 if len(self.question) <= 20 else 44))
         self.answer.clear()
         self.answer.setFocus()
 
